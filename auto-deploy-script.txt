@@ -1,0 +1,240 @@
+#!/bin/bash
+
+# Script de déploiement complet Adorable vers Vercel
+# Usage: chmod +x auto-deploy.sh && ./auto-deploy.sh
+
+set -e
+
+# Couleurs pour les messages
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Fonctions d'affichage
+print_header() { echo -e "${BLUE}🚀 $1${NC}"; }
+print_success() { echo -e "${GREEN}✅ $1${NC}"; }
+print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
+print_error() { echo -e "${RED}❌ $1${NC}"; }
+print_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
+
+# Variables
+PROJECT_NAME="adorable-production"
+DOMAIN="samaleh-arka.com"
+GITHUB_REPO=""
+
+print_header "Déploiement Automatisé Adorable vers Vercel"
+echo "=============================================="
+echo ""
+
+# Vérifications préliminaires
+print_info "Vérification de l'environnement..."
+
+# Vérifier Node.js
+if ! command -v node &> /dev/null; then
+    print_error "Node.js n'est pas installé"
+    exit 1
+fi
+
+# Vérifier npm
+if ! command -v npm &> /dev/null; then
+    print_error "npm n'est pas installé"
+    exit 1
+fi
+
+# Vérifier git
+if ! command -v git &> /dev/null; then
+    print_error "git n'est pas installé"
+    exit 1
+fi
+
+print_success "Environnement validé"
+
+# Vérifier le fichier .env
+if [ ! -f ".env" ]; then
+    print_error "Fichier .env manquant"
+    print_info "Assurez-vous d'être dans le bon répertoire"
+    exit 1
+fi
+
+print_success "Configuration .env trouvée"
+
+# Demander l'URL du repository GitHub
+echo ""
+print_info "Configuration GitHub"
+read -p "URL de votre repository GitHub (ex: https://github.com/username/adorable-production.git): " GITHUB_REPO
+
+if [ -z "$GITHUB_REPO" ]; then
+    print_error "URL GitHub requise"
+    exit 1
+fi
+
+# Créer les fichiers de configuration de production
+print_info "Création des fichiers de production..."
+
+# Créer vercel.json si pas existant
+if [ ! -f "vercel.json" ]; then
+    cat > vercel.json << 'EOF'
+{
+  "name": "adorable-production",
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install --legacy-peer-deps",
+  "functions": {
+    "src/app/api/**/*.ts": {
+      "maxDuration": 30
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options", 
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "origin-when-cross-origin"
+        }
+      ]
+    }
+  ]
+}
+EOF
+    print_success "vercel.json créé"
+fi
+
+# Build test local
+print_info "Test du build local..."
+if npm run build; then
+    print_success "Build local réussi"
+else
+    print_error "Erreur de build local"
+    print_info "Corrigez les erreurs avant de continuer"
+    exit 1
+fi
+
+# Configuration Git
+print_info "Configuration Git..."
+
+# Initialiser git si nécessaire
+if [ ! -d ".git" ]; then
+    git init
+    print_success "Repository git initialisé"
+fi
+
+# Ajouter tous les fichiers
+git add .
+
+# Commit
+if git diff --staged --quiet; then
+    print_warning "Aucun changement à commiter"
+else
+    git commit -m "Production deployment setup - $(date)"
+    print_success "Changements commitées"
+fi
+
+# Ajouter remote si pas existant
+if ! git remote get-url origin &> /dev/null; then
+    git remote add origin "$GITHUB_REPO"
+    print_success "Remote GitHub ajouté"
+fi
+
+# Push vers GitHub
+print_info "Push vers GitHub..."
+git branch -M main
+if git push -u origin main; then
+    print_success "Code pushé vers GitHub"
+else
+    print_error "Erreur lors du push"
+    print_info "Vérifiez vos droits d'accès au repository"
+    exit 1
+fi
+
+# Instructions pour Vercel
+echo ""
+print_header "Configuration Vercel"
+echo "====================="
+echo ""
+print_info "Maintenant, suivez ces étapes sur vercel.com :"
+echo ""
+echo "1. 🌐 Allez sur https://vercel.com"
+echo "2. 🔐 Connectez-vous avec GitHub"
+echo "3. ➕ New Project > Import $PROJECT_NAME"
+echo "4. ⚙️  Avant de déployer, ajoutez ces variables d'environnement :"
+echo ""
+
+# Lire les variables du .env et les afficher (masquées)
+print_info "Variables d'environnement à configurer :"
+echo ""
+while IFS= read -r line; do
+    if [[ $line == *"="* ]] && [[ $line != "#"* ]]; then
+        key=$(echo "$line" | cut -d'=' -f1)
+        value=$(echo "$line" | cut -d'=' -f2-)
+        # Masquer la valeur mais montrer le format
+        masked_value=$(echo "$value" | sed 's/./*/g' | head -c 20)
+        echo "   $key = $masked_value..."
+    fi
+done < .env
+
+echo ""
+echo "5. 🚀 Cliquez sur Deploy"
+echo "6. 🌐 Une fois déployé, ajoutez le domaine : $DOMAIN"
+echo ""
+
+# Instructions DNS
+print_header "Configuration DNS"
+echo "=================="
+echo ""
+print_info "Configurez ces enregistrements DNS pour $DOMAIN :"
+echo ""
+echo "Type: A"
+echo "Name: @"
+echo "Value: 76.76.19.61"
+echo ""
+echo "Type: CNAME"
+echo "Name: www"
+echo "Value: cname.vercel-dns.com"
+echo ""
+
+# Instructions Stack Auth
+print_header "Configuration Stack Auth"
+echo "========================="
+echo ""
+print_info "Mettez à jour Stack Auth sur https://app.stack-auth.com :"
+echo ""
+echo "Authorized domains:"
+echo "- https://$DOMAIN"
+echo "- https://www.$DOMAIN"
+echo ""
+echo "Authorized redirect URIs:"
+echo "- https://$DOMAIN/api/auth/callback"
+echo "- https://www.$DOMAIN/api/auth/callback"
+echo ""
+
+# Résumé final
+print_header "Résumé"
+echo "======"
+echo ""
+print_success "✅ Code pushé vers GitHub"
+print_success "✅ Configuration de production prête"
+print_success "✅ Build local validé"
+echo ""
+print_info "📋 Prochaines étapes :"
+echo "1. Configurer Vercel (voir instructions ci-dessus)"
+echo "2. Ajouter les variables d'environnement"
+echo "3. Déployer"
+echo "4. Configurer DNS"
+echo "5. Mettre à jour Stack Auth"
+echo ""
+print_info "🎯 Votre app sera disponible sur : https://$DOMAIN"
+print_info "💰 Coût total : 0€ (100% gratuit !)"
+echo ""
+print_header "🎉 Préparation terminée avec succès !"

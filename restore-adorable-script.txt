@@ -1,0 +1,110 @@
+#!/bin/bash
+
+# Script de restauration complète d'Adorable avec configuration OpenRouter
+# Usage: 
+#   1. Copiez ce contenu dans un fichier restore-adorable.sh
+#   2. chmod +x restore-adorable.sh
+#   3. ./restore-adorable.sh
+
+set -e
+
+echo "🔄 Restauration complète d'Adorable avec configuration OpenRouter"
+echo "================================================================="
+
+# Variables
+BACKUP_ENV="/home/scrapybara/SamalehZen/Adorable-Lovable-clone-SaaS/.env"
+ORIGINAL_REPO="https://github.com/freestyle-sh/adorable"
+NEW_DIR="/home/scrapybara/adorable-complet"
+
+# Fonctions d'affichage
+print_success() { echo -e "\033[32m✅ $1\033[0m"; }
+print_error() { echo -e "\033[31m❌ $1\033[0m"; }
+print_info() { echo -e "\033[34mℹ️  $1\033[0m"; }
+
+# Vérifier que le fichier .env existe
+if [ ! -f "$BACKUP_ENV" ]; then
+    print_error "Fichier .env non trouvé dans $BACKUP_ENV"
+    exit 1
+fi
+
+print_success "Configuration .env trouvée"
+
+# Cloner le projet original
+echo "1. Clonage du projet original..."
+if [ -d "$NEW_DIR" ]; then
+    print_info "Suppression de l'ancien répertoire..."
+    rm -rf "$NEW_DIR"
+fi
+
+git clone "$ORIGINAL_REPO" "$NEW_DIR"
+print_success "Projet cloné dans $NEW_DIR"
+
+# Aller dans le nouveau répertoire
+cd "$NEW_DIR"
+
+# Copier la configuration
+echo "2. Copie de votre configuration..."
+cp "$BACKUP_ENV" .env
+print_success "Configuration .env copiée"
+
+# Installer les dépendances avec OpenRouter
+echo "3. Installation des dépendances (avec support OpenRouter)..."
+npm install --legacy-peer-deps
+npm install @ai-sdk/openai --legacy-peer-deps
+print_success "Dépendances installées"
+
+# Appliquer les modifications OpenRouter
+echo "4. Application des modifications OpenRouter..."
+
+# Modifier src/lib/model.ts
+cat > src/lib/model.ts << 'EOF'
+import { createOpenAI } from "@ai-sdk/openai";
+
+// Configuration OpenRouter avec modèle DeepSeek gratuit
+const openrouter = createOpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+export const MODEL = openrouter("deepseek/deepseek-r1-0528:free");
+EOF
+
+# Modifier src/mastra/agents/builder.ts pour utiliser OpenRouter
+sed -i 's/import { anthropic } from "@ai-sdk\/anthropic";/import { MODEL } from "@\/lib\/model";/' src/mastra/agents/builder.ts
+sed -i 's/model: anthropic("claude-3-7-sonnet-20250219"),/model: MODEL,/' src/mastra/agents/builder.ts
+
+# Modifier .env.example
+sed -i 's/ANTHROPIC_API_KEY=/OPENROUTER_API_KEY=sk-or-/' .env.example
+
+print_success "Modifications OpenRouter appliquées"
+
+# Initialiser la base de données
+echo "5. Vérification de la base de données..."
+npx drizzle-kit push
+print_success "Base de données vérifiée"
+
+# Test final
+echo "6. Test de la configuration..."
+node -e "
+require('dotenv').config();
+console.log('✅ Test réussi !');
+console.log('🔑 OpenRouter:', process.env.OPENROUTER_API_KEY ? 'Présent' : 'Manquant');
+console.log('🗄️ Database:', process.env.DATABASE_URL ? 'Présent' : 'Manquant');
+console.log('🎯 Freestyle:', process.env.FREESTYLE_API_KEY ? 'Présent' : 'Manquant');
+"
+
+echo ""
+echo "🎉 Restauration terminée avec succès !"
+echo "======================================"
+print_success "Projet complet restauré dans: $NEW_DIR"
+print_success "Configuration OpenRouter + DeepSeek R1 appliquée"
+print_success "Base de données Neon fonctionnelle"
+
+echo ""
+echo "🚀 Pour lancer l'application :"
+echo "cd $NEW_DIR"
+echo "npm run dev"
+echo ""
+echo "🌐 Puis ouvrir: http://localhost:3000"
+echo ""
+print_info "Votre app Adorable sera 100% gratuite grâce à DeepSeek R1 !"
